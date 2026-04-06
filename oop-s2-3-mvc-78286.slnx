@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="College.Domain/College.Domain.csproj" />
+  <Project Path="College.Tests/College.Tests.csproj" />
+  <Project Path="oop-s2-3-mvc-78286/oop-s2-3-mvc-78286.csproj" />
+</Solution>
