@@ -1,5 +1,4 @@
 ﻿using College.Domain.Models;
-using global::College.Domain.Models;
 using Microsoft.AspNetCore.Identity;
 using oop_s2_3_mvc_78286.Data;
 
@@ -19,11 +18,12 @@ namespace oop_s2_3_mvc_78286.Data
                     await roleManager.CreateAsync(new Role(name));
             }
 
-            // 2. Seed Identity Users
-            var adminUser = await CreateUser(userManager, "admin@college.com", "Admin123!");
-            var facultyUser = await CreateUser(userManager, "teacher@college.com", "Teacher123!");
-            var student1 = await CreateUser(userManager, "student1@college.com", "Student123!");
-            var student2 = await CreateUser(userManager, "student2@college.com", "Student123!");
+            // 2. Seed Identity Users AND Assign Roles
+            // Note: CreateUser now takes the role as the 4th parameter
+            var adminUser = await CreateUser(userManager, "admin@college.com", "Admin123!", "Administrator");
+            var facultyUser = await CreateUser(userManager, "teacher@college.com", "Teacher123!", "Faculty");
+            var student1 = await CreateUser(userManager, "student1@college.com", "Student123!", "Student");
+            var student2 = await CreateUser(userManager, "student2@college.com", "Student123!", "Student");
 
             // 3. Seed Profiles (Linking to Identity IDs)
             if (!context.StaffProfiles.Any())
@@ -38,35 +38,36 @@ namespace oop_s2_3_mvc_78286.Data
                 await context.SaveChangesAsync();
             }
 
-            // 4. Seed Branches (5 entries)
+            // --- Remaining Seeding Logic (Branches, Courses, etc.) stays the same ---
+            
+            // 4. Seed Branches
             if (!context.Branches.Any())
             {
                 for (int i = 1; i <= 5; i++)
                 {
-                    context.Branches.Add(new Branch
-                    {
-                        Name = $"Campus {i}",
-                        Street = $"{i} College Road",
-                        City = "Dublin",
-                        Eircode = $"D0{i} X12{i}"
-                    });
+                    context.Branches.Add(new Branch { Name = $"Campus {i}", Street = $"{i} College Road", City = "Dublin", Eircode = $"D0{i}X12{i}" });
                 }
                 await context.SaveChangesAsync();
             }
 
             var branch = context.Branches.First();
 
+            // 5. Seed Courses
             // 5. Seed Courses (5 entries)
             if (!context.Courses.Any())
             {
+                // Use the current date as a starting point
+                DateOnly today = DateOnly.FromDateTime(DateTime.Now);
+
                 for (int i = 1; i <= 5; i++)
                 {
                     context.Courses.Add(new Course
                     {
                         Name = $"Course {i}",
                         BranchId = branch.Id,
-                        StartDate = DateTime.Now,
-                        EndDate = DateTime.Now.AddYears(1)
+                        // Convert DateTime to DateOnly
+                        StartDate = today,
+                        EndDate = today.AddYears(1)
                     });
                 }
                 await context.SaveChangesAsync();
@@ -75,7 +76,7 @@ namespace oop_s2_3_mvc_78286.Data
             var course = context.Courses.First();
             var staffMember = context.StaffProfiles.First();
 
-            // 6. Seed Modules (5 entries)
+            // 6. Seed Modules
             if (!context.Modules.Any())
             {
                 for (int i = 1; i <= 5; i++)
@@ -88,7 +89,7 @@ namespace oop_s2_3_mvc_78286.Data
                 await context.SaveChangesAsync();
             }
 
-            // 7. Seed Enrolments, Attendance, Assignments (5 entries each)
+            // 7. Seed Enrolments, Attendance, Assignments
             var student = context.StudentProfiles.First();
             var moduleSample = context.Modules.First();
 
@@ -96,20 +97,8 @@ namespace oop_s2_3_mvc_78286.Data
             {
                 for (int i = 1; i <= 5; i++)
                 {
-                    context.Attendances.Add(new Attendance
-                    {
-                        StudentProfileId = student.Id,
-                        ModuleId = moduleSample.Id,
-                        SessionDate = DateTime.Now.AddDays(-i),
-                        IsPresent = i % 2 == 0
-                    });
-
-                    context.Assignments.Add(new Assignment
-                    {
-                        Title = $"Assignment {i}",
-                        MaxScore = 100,
-                        ModuleId = moduleSample.Id
-                    });
+                    context.Attendances.Add(new Attendance { StudentProfileId = student.Id, ModuleId = moduleSample.Id, SessionDate = DateTime.Now.AddDays(-i), IsPresent = i % 2 == 0 });
+                    context.Assignments.Add(new Assignment { Title = $"Assignment {i}", MaxScore = 100, ModuleId = moduleSample.Id });
                 }
                 await context.SaveChangesAsync();
             }
@@ -118,23 +107,24 @@ namespace oop_s2_3_mvc_78286.Data
             if (!context.AssignmentResults.Any())
             {
                 var assignment = context.Assignments.First();
-                context.AssignmentResults.Add(new AssignmentResults
-                {
-                    AssignmentId = assignment.Id,
-                    StudentProfileId = student.Id,
-                    Result = 85.50m
-                });
+                context.AssignmentResults.Add(new AssignmentResults { AssignmentId = assignment.Id, StudentProfileId = student.Id, Result = 85.50m });
                 await context.SaveChangesAsync();
             }
         }
 
-        private static async Task<IdentityUser> CreateUser(UserManager<IdentityUser> userManager, string email, string password)
+        private static async Task<IdentityUser> CreateUser(UserManager<IdentityUser> userManager, string email, string password, string role)
         {
             var user = await userManager.FindByEmailAsync(email);
             if (user == null)
             {
                 user = new IdentityUser { UserName = email, Email = email, EmailConfirmed = true };
-                await userManager.CreateAsync(user, password);
+                var result = await userManager.CreateAsync(user, password);
+                
+                if (result.Succeeded)
+                {
+                    // This is the CRITICAL part: Adding the user to the specific role
+                    await userManager.AddToRoleAsync(user, role);
+                }
             }
             return user;
         }

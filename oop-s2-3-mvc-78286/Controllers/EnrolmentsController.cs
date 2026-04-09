@@ -7,9 +7,11 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using College.Domain.Models;
 using oop_s2_3_mvc_78286.Data;
+using Microsoft.AspNetCore.Authorization;
 
 namespace oop_s2_3_mvc_78286.Controllers
 {
+    [Authorize]
     public class EnrolmentsController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -19,10 +21,8 @@ namespace oop_s2_3_mvc_78286.Controllers
             _context = context;
         }
 
-        // GET: Enrolments
         public async Task<IActionResult> Index()
         {
-            // Efficiency: Using AsNoTracking and eager loading for performance
             var enrolments = await _context.Enrolments
                 .Include(e => e.Course)
                 .Include(e => e.StudentProfile)
@@ -31,25 +31,26 @@ namespace oop_s2_3_mvc_78286.Controllers
             return View(enrolments);
         }
 
-        // POST: Enrolments/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> Create([Bind("Id,StudentProfileId,CourseId,StartDate,EndDate,Status")] Enrolments enrolments)
         {
             if (ModelState.IsValid)
             {
-                // RULE 1: Fetch course to validate dates
+                // RULE 1: Fetch course to validate DateOnly ranges
                 var course = await _context.Courses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == enrolments.CourseId);
 
                 if (course != null)
                 {
+                    // DateOnly comparison is clean and direct
                     if (enrolments.StartDate < course.StartDate || enrolments.EndDate > course.EndDate)
                     {
-                        ModelState.AddModelError("StartDate", $"Enrolment dates must fall within the Course dates: {course.StartDate.ToShortDateString()} - {course.EndDate.ToShortDateString()}");
+                        ModelState.AddModelError("StartDate", $"Enrolment dates must fall within the Course dates: {course.StartDate} to {course.EndDate}");
                     }
                 }
 
-                // RULE 2: Prevent duplicate active enrolments for the same student/course
+                // RULE 2: Prevent duplicate active enrolments
                 bool isAlreadyEnrolled = await _context.Enrolments.AnyAsync(e =>
                     e.StudentProfileId == enrolments.StudentProfileId &&
                     e.CourseId == enrolments.CourseId &&
@@ -72,20 +73,20 @@ namespace oop_s2_3_mvc_78286.Controllers
             return View(enrolments);
         }
 
-        // POST: Enrolments/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> Edit(int id, [Bind("Id,StudentProfileId,CourseId,StartDate,EndDate,Status")] Enrolments enrolments)
         {
             if (id != enrolments.Id) return NotFound();
 
             if (ModelState.IsValid)
             {
-                // Re-validate dates on Edit
                 var course = await _context.Courses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == enrolments.CourseId);
+
                 if (course != null && (enrolments.StartDate < course.StartDate || enrolments.EndDate > course.EndDate))
                 {
-                    ModelState.AddModelError("StartDate", "Dates must remain within the course duration.");
+                    ModelState.AddModelError("StartDate", "The dates must remain within the official course duration.");
                 }
 
                 if (ModelState.IsValid)
@@ -107,7 +108,6 @@ namespace oop_s2_3_mvc_78286.Controllers
             return View(enrolments);
         }
 
-        // Helper to keep dropdown logic consistent
         private void PopulateDropdowns(Enrolments enrolment = null)
         {
             ViewData["CourseId"] = new SelectList(_context.Courses, "Id", "Name", enrolment?.CourseId);

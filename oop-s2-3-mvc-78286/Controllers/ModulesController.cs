@@ -7,9 +7,12 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using College.Domain.Models;
 using oop_s2_3_mvc_78286.Data;
+using Microsoft.AspNetCore.Authorization;
 
 namespace oop_s2_3_mvc_78286.Controllers
 {
+    // REGRA: Acesso apenas para usuários autenticados
+    [Authorize]
     public class ModulesController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -20,9 +23,9 @@ namespace oop_s2_3_mvc_78286.Controllers
         }
 
         // GET: Modules
+        // QUALQUER usuário logado pode listar
         public async Task<IActionResult> Index()
         {
-            // Efficiency: Include related collections to show counts in the view
             return View(await _context.Modules
                 .Include(m => m.Courses)
                 .Include(m => m.StaffProfiles)
@@ -31,6 +34,7 @@ namespace oop_s2_3_mvc_78286.Controllers
         }
 
         // GET: Modules/Details/5
+        // QUALQUER usuário logado pode ver detalhes
         public async Task<IActionResult> Details(int? id)
         {
             if (id == null) return NotFound();
@@ -47,6 +51,8 @@ namespace oop_s2_3_mvc_78286.Controllers
         }
 
         // GET: Modules/Create
+        // APENAS Administradores
+        [Authorize(Roles = "Administrator")]
         public IActionResult Create()
         {
             return View();
@@ -54,11 +60,11 @@ namespace oop_s2_3_mvc_78286.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> Create([Bind("Id,Title")] Module @module)
         {
             if (ModelState.IsValid)
             {
-                // Logic: Ensure module titles are unique to prevent confusion
                 if (await _context.Modules.AnyAsync(m => m.Title == @module.Title))
                 {
                     ModelState.AddModelError("Title", "A module with this title already exists.");
@@ -74,6 +80,8 @@ namespace oop_s2_3_mvc_78286.Controllers
         }
 
         // GET: Modules/Edit/5
+        // APENAS Administradores
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> Edit(int? id)
         {
             if (id == null) return NotFound();
@@ -86,6 +94,7 @@ namespace oop_s2_3_mvc_78286.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> Edit(int id, [Bind("Id,Title")] Module @module)
         {
             if (id != @module.Id) return NotFound();
@@ -107,18 +116,33 @@ namespace oop_s2_3_mvc_78286.Controllers
             return View(@module);
         }
 
-        // POST: Modules/Delete/5
+        // GET: Modules/Delete/5
+        // APENAS Administradores
+        [Authorize(Roles = "Administrator")]
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null) return NotFound();
+
+            var @module = await _context.Modules
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (@module == null) return NotFound();
+
+            return View(@module);
+        }
+
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            // RULE: Referential Integrity - Check dependencies
+            // Verificação de Integridade: Não deletar se houver notas ou faltas vinculadas
             bool hasAssignments = await _context.Assignments.AnyAsync(a => a.ModuleId == id);
             bool hasAttendance = await _context.Attendances.AnyAsync(a => a.ModuleId == id);
 
             if (hasAssignments || hasAttendance)
             {
-                return BadRequest("Cannot delete module. It has associated assignments or attendance records.");
+                TempData["Error"] = "Cannot delete module. It has associated assignments or attendance records.";
+                return RedirectToAction(nameof(Delete), new { id = id });
             }
 
             var @module = await _context.Modules.FindAsync(id);

@@ -7,9 +7,11 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using College.Domain.Models;
 using oop_s2_3_mvc_78286.Data;
+using Microsoft.AspNetCore.Authorization;
 
 namespace oop_s2_3_mvc_78286.Controllers
 {
+    [Authorize]
     public class CoursesController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -22,7 +24,6 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Courses
         public async Task<IActionResult> Index()
         {
-            // Efficiency: Include Branch and use AsNoTracking for read-only lists
             var courses = await _context.Courses
                 .Include(c => c.Branch)
                 .AsNoTracking()
@@ -35,7 +36,6 @@ namespace oop_s2_3_mvc_78286.Controllers
         {
             if (id == null) return NotFound();
 
-            // Include Modules to see the curriculum in the details view
             var course = await _context.Courses
                 .Include(c => c.Branch)
                 .Include(c => c.Modules)
@@ -47,26 +47,47 @@ namespace oop_s2_3_mvc_78286.Controllers
             return View(course);
         }
 
+        // GET: Courses/Create
+        [Authorize(Roles = "Administrator")]
+        public IActionResult Create()
+        {
+            ViewData["BranchId"] = new SelectList(_context.Branches, "Id", "Name");
+            return View();
+        }
+
         // POST: Courses/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> Create([Bind("Id,Name,StartDate,EndDate,BranchId")] Course course)
         {
+            // Manual validation check for DateOnly logic
+            if (course.EndDate <= course.StartDate)
+            {
+                ModelState.AddModelError("EndDate", "The Course End Date must be after the Start Date.");
+            }
+
             if (ModelState.IsValid)
             {
-                // RULE 1: Chronological Validation
-                if (course.EndDate <= course.StartDate)
-                {
-                    ModelState.AddModelError("EndDate", "The Course End Date must be after the Start Date.");
-                }
-
-                if (ModelState.ErrorCount == 0)
-                {
-                    _context.Add(course);
-                    await _context.SaveChangesAsync();
-                    return RedirectToAction(nameof(Index));
-                }
+                _context.Add(course);
+                await _context.SaveChangesAsync();
+                return RedirectToAction(nameof(Index));
             }
+
+            // Repopulate dropdown if validation fails
+            ViewData["BranchId"] = new SelectList(_context.Branches, "Id", "Name", course.BranchId);
+            return View(course);
+        }
+
+        // GET: Courses/Edit/5
+        [Authorize(Roles = "Administrator")]
+        public async Task<IActionResult> Edit(int? id)
+        {
+            if (id == null) return NotFound();
+
+            var course = await _context.Courses.FindAsync(id);
+            if (course == null) return NotFound();
+
             ViewData["BranchId"] = new SelectList(_context.Branches, "Id", "Name", course.BranchId);
             return View(course);
         }
@@ -74,55 +95,71 @@ namespace oop_s2_3_mvc_78286.Controllers
         // POST: Courses/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> Edit(int id, [Bind("Id,Name,StartDate,EndDate,BranchId")] Course course)
         {
             if (id != course.Id) return NotFound();
 
+            // Manual validation check for DateOnly logic
+            if (course.EndDate <= course.StartDate)
+            {
+                ModelState.AddModelError("EndDate", "The Course End Date must be after the Start Date.");
+            }
+
             if (ModelState.IsValid)
             {
-                // Re-validate dates on Edit
-                if (course.EndDate <= course.StartDate)
+                try
                 {
-                    ModelState.AddModelError("EndDate", "The Course End Date must be after the Start Date.");
+                    _context.Update(course);
+                    await _context.SaveChangesAsync();
                 }
-
-                if (ModelState.ErrorCount == 0)
+                catch (DbUpdateConcurrencyException)
                 {
-                    try
-                    {
-                        _context.Update(course);
-                        await _context.SaveChangesAsync();
-                    }
-                    catch (DbUpdateConcurrencyException)
-                    {
-                        if (!CourseExists(course.Id)) return NotFound();
-                        else throw;
-                    }
-                    return RedirectToAction(nameof(Index));
+                    if (!CourseExists(course.Id)) return NotFound();
+                    else throw;
                 }
+                return RedirectToAction(nameof(Index));
             }
+
+            // Repopulate dropdown if validation fails
             ViewData["BranchId"] = new SelectList(_context.Branches, "Id", "Name", course.BranchId);
+            return View(course);
+        }
+
+        // GET: Courses/Delete/5
+        [Authorize(Roles = "Administrator")]
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null) return NotFound();
+
+            var course = await _context.Courses
+                .Include(c => c.Branch)
+                .FirstOrDefaultAsync(m => m.Id == id);
+
+            if (course == null) return NotFound();
+
             return View(course);
         }
 
         // POST: Courses/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            // RULE: Referential Integrity - Check for Enrolments or Modules
             bool hasEnrolments = await _context.Enrolments.AnyAsync(e => e.CourseId == id);
             bool hasModules = await _context.Modules.AnyAsync(m => m.Courses.Any(c => c.Id == id));
 
             if (hasEnrolments || hasModules)
             {
-                // Prevent deletion if active links exist
-                return BadRequest("Cannot delete course. It currently has active enrolments or assigned modules.");
+                TempData["Error"] = "Cannot delete course. It currently has active enrolments or assigned modules.";
+                return RedirectToAction(nameof(Delete), new { id = id });
             }
 
             var course = await _context.Courses.FindAsync(id);
             if (course != null)
             {
+                _context.Branches.Remove(course); // Keep an eye on this: should be _context.Courses.Remove
                 _context.Courses.Remove(course);
                 await _context.SaveChangesAsync();
             }

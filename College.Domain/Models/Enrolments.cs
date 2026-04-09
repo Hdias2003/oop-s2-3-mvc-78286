@@ -23,10 +23,12 @@ namespace College.Domain.Models
         public virtual Course Course { get; set; }
 
         [Required]
-        public DateTime StartDate { get; set; }
+        [DataType(DataType.Date)]
+        public DateOnly StartDate { get; set; }
 
         [Required]
-        public DateTime EndDate { get; set; }
+        [DataType(DataType.Date)]
+        public DateOnly EndDate { get; set; }
 
         [Required]
         public string Status { get; set; }

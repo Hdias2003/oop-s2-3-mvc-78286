@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Authorization;
 
 namespace oop_s2_3_mvc_78286.Controllers
 {
-    [Authorize(Roles = "Administrator")] // Restrict branch management to Admins
+    // Removing the class-level [Authorize] to allow granular control per method
     public class BranchesController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -20,19 +20,19 @@ namespace oop_s2_3_mvc_78286.Controllers
             _context = context;
         }
 
-        // GET: Branches
+        // ACCESS: Any logged-in user (Faculty, Student, or Admin)
+        [Authorize]
         public async Task<IActionResult> Index()
         {
-            // Efficiency: AsNoTracking for read-only campus list
             return View(await _context.Branches.AsNoTracking().ToListAsync());
         }
 
-        // GET: Branches/Details/5
+        // ACCESS: Any logged-in user
+        [Authorize]
         public async Task<IActionResult> Details(int? id)
         {
             if (id == null) return NotFound();
 
-            // Logic Suggestion: Include courses so we can see what's taught at this branch
             var branch = await _context.Branches
                 .Include(b => b.Course)
                 .AsNoTracking()
@@ -43,19 +43,23 @@ namespace oop_s2_3_mvc_78286.Controllers
             return View(branch);
         }
 
-        // POST: Branches/Create
+        // ACCESS: Only Administrators
+        [Authorize(Roles = "Administrator")]
+        public IActionResult Create()
+        {
+            return View();
+        }
+
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> Create([Bind("Id,Name,Street,City,Eircode")] Branch branch)
         {
             if (ModelState.IsValid)
             {
-                // RULE: Simple Eircode formatting (Ensure uppercase and remove extra spaces)
                 if (!string.IsNullOrEmpty(branch.Eircode))
                 {
                     branch.Eircode = branch.Eircode.ToUpper().Replace(" ", "");
-
-                    // Basic length check for Irish Eircodes (7 characters)
                     if (branch.Eircode.Length != 7)
                     {
                         ModelState.AddModelError("Eircode", "A valid Eircode must be exactly 7 characters.");
@@ -72,19 +76,60 @@ namespace oop_s2_3_mvc_78286.Controllers
             return View(branch);
         }
 
-        // POST: Branches/Delete/5
+        // ACCESS: Only Administrators
+        [Authorize(Roles = "Administrator")]
+        public async Task<IActionResult> Edit(int? id)
+        {
+            if (id == null) return NotFound();
+            var branch = await _context.Branches.FindAsync(id);
+            if (branch == null) return NotFound();
+            return View(branch);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
+        public async Task<IActionResult> Edit(int id, [Bind("Id,Name,Street,City,Eircode")] Branch branch)
+        {
+            if (id != branch.Id) return NotFound();
+
+            if (ModelState.IsValid)
+            {
+                try
+                {
+                    _context.Update(branch);
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    if (!BranchExists(branch.Id)) return NotFound();
+                    else throw;
+                }
+                return RedirectToAction(nameof(Index));
+            }
+            return View(branch);
+        }
+
+        // ACCESS: Only Administrators
+        [Authorize(Roles = "Administrator")]
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null) return NotFound();
+            var branch = await _context.Branches.FirstOrDefaultAsync(m => m.Id == id);
+            if (branch == null) return NotFound();
+            return View(branch);
+        }
+
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            // RULE: Referential Integrity - Don't delete a branch if it has courses
             bool hasCourses = await _context.Courses.AnyAsync(c => c.BranchId == id);
 
             if (hasCourses)
             {
-                // In a production app, use TempData to show a Toast/Alert to the user
                 ModelState.AddModelError("", "Cannot delete branch. Move or delete existing courses first.");
-
                 var branch = await _context.Branches.FindAsync(id);
                 return View("Delete", branch);
             }

@@ -12,13 +12,18 @@ namespace College.Domain.Models
         public int Id { get; set; }
 
         [Required]
+        [StringLength(100)]
         public string Name { get; set; }
 
         [Required]
-        public DateTime StartDate { get; set; }
+        [DataType(DataType.Date)] // Ensures the HTML view shows a date picker
+        [Column(TypeName = "date")] // Maps precisely to SQL 'date' instead of 'datetime2'
+        public DateOnly StartDate { get; set; }
 
         [Required]
-        public DateTime EndDate { get; set; }
+        [DataType(DataType.Date)]
+        [Column(TypeName = "date")]
+        public DateOnly EndDate { get; set; }
 
         // Linked to the Branch entity
         [Required]
@@ -27,7 +32,6 @@ namespace College.Domain.Models
         [ForeignKey("BranchId")]
         public virtual Branch Branch { get; set; }
 
-        // Updated to plural 'Modules' to fix CS1061 and match the Many-to-Many configuration
         public virtual ICollection<Module> Modules { get; set; } = new List<Module>();
 
         public virtual ICollection<Enrolments> Enrolments { get; set; } = new List<Enrolments>();
