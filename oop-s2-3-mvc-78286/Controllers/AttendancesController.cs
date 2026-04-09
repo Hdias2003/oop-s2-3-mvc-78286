@@ -22,144 +22,103 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Attendances
         public async Task<IActionResult> Index()
         {
-            var applicationDbContext = _context.Attendances.Include(a => a.Module).Include(a => a.StudentProfile);
-            return View(await applicationDbContext.ToListAsync());
-        }
-
-        // GET: Attendances/Details/5
-        public async Task<IActionResult> Details(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var attendance = await _context.Attendances
+            // Efficiency: AsNoTracking and sorting by date
+            var attendances = await _context.Attendances
                 .Include(a => a.Module)
                 .Include(a => a.StudentProfile)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (attendance == null)
-            {
-                return NotFound();
-            }
-
-            return View(attendance);
+                .AsNoTracking()
+                .OrderByDescending(a => a.SessionDate)
+                .ToListAsync();
+            return View(attendances);
         }
 
         // GET: Attendances/Create
         public IActionResult Create()
         {
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title");
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID");
-            return View();
+            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "Name");
+            return View(new Attendance { SessionDate = DateTime.Now }); // Default to today
         }
 
-        // POST: Attendances/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,StudentProfileId,ModuleId,SessionDate,IsPresent")] Attendance attendance)
         {
             if (ModelState.IsValid)
             {
-                _context.Add(attendance);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
+                // RULE: Enforce Granularity (One record per student/module/day)
+                bool alreadyExists = await _context.Attendances.AnyAsync(a =>
+                    a.StudentProfileId == attendance.StudentProfileId &&
+                    a.ModuleId == attendance.ModuleId &&
+                    a.SessionDate.Date == attendance.SessionDate.Date);
+
+                if (alreadyExists)
+                {
+                    ModelState.AddModelError("", "Attendance for this student has already been recorded for this session today.");
+                }
+
+                if (ModelState.IsValid)
+                {
+                    _context.Add(attendance);
+                    await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
+                }
             }
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title", attendance.ModuleId);
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID", attendance.StudentProfileId);
+            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "Name", attendance.StudentProfileId);
             return View(attendance);
         }
 
         // GET: Attendances/Edit/5
         public async Task<IActionResult> Edit(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
             var attendance = await _context.Attendances.FindAsync(id);
-            if (attendance == null)
-            {
-                return NotFound();
-            }
+            if (attendance == null) return NotFound();
+
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title", attendance.ModuleId);
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID", attendance.StudentProfileId);
+            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "Name", attendance.StudentProfileId);
             return View(attendance);
         }
 
-        // POST: Attendances/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, [Bind("Id,StudentProfileId,ModuleId,SessionDate,IsPresent")] Attendance attendance)
         {
-            if (id != attendance.Id)
-            {
-                return NotFound();
-            }
+            if (id != attendance.Id) return NotFound();
 
             if (ModelState.IsValid)
             {
-                try
+                // Verify no date conflict with other records (excluding this record itself)
+                bool duplicateConflict = await _context.Attendances.AnyAsync(a =>
+                    a.Id != id &&
+                    a.StudentProfileId == attendance.StudentProfileId &&
+                    a.ModuleId == attendance.ModuleId &&
+                    a.SessionDate.Date == attendance.SessionDate.Date);
+
+                if (duplicateConflict)
                 {
-                    _context.Update(attendance);
-                    await _context.SaveChangesAsync();
+                    ModelState.AddModelError("", "Changing to this date would create a duplicate attendance record.");
                 }
-                catch (DbUpdateConcurrencyException)
+                else
                 {
-                    if (!AttendanceExists(attendance.Id))
+                    try
                     {
-                        return NotFound();
+                        _context.Update(attendance);
+                        await _context.SaveChangesAsync();
                     }
-                    else
+                    catch (DbUpdateConcurrencyException)
                     {
-                        throw;
+                        if (!AttendanceExists(attendance.Id)) return NotFound();
+                        else throw;
                     }
+                    return RedirectToAction(nameof(Index));
                 }
-                return RedirectToAction(nameof(Index));
             }
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title", attendance.ModuleId);
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID", attendance.StudentProfileId);
+            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "Name", attendance.StudentProfileId);
             return View(attendance);
-        }
-
-        // GET: Attendances/Delete/5
-        public async Task<IActionResult> Delete(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var attendance = await _context.Attendances
-                .Include(a => a.Module)
-                .Include(a => a.StudentProfile)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (attendance == null)
-            {
-                return NotFound();
-            }
-
-            return View(attendance);
-        }
-
-        // POST: Attendances/Delete/5
-        [HttpPost, ActionName("Delete")]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> DeleteConfirmed(int id)
-        {
-            var attendance = await _context.Attendances.FindAsync(id);
-            if (attendance != null)
-            {
-                _context.Attendances.Remove(attendance);
-            }
-
-            await _context.SaveChangesAsync();
-            return RedirectToAction(nameof(Index));
         }
 
         private bool AttendanceExists(int id)

@@ -22,144 +22,94 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: ExamResults
         public async Task<IActionResult> Index()
         {
-            var applicationDbContext = _context.ExamResults.Include(e => e.Exams).Include(e => e.StudentProfile);
-            return View(await applicationDbContext.ToListAsync());
-        }
-
-        // GET: ExamResults/Details/5
-        public async Task<IActionResult> Details(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var examResults = await _context.ExamResults
+            // Efficiency: AsNoTracking and order by the most recent results
+            var results = await _context.ExamResults
                 .Include(e => e.Exams)
                 .Include(e => e.StudentProfile)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (examResults == null)
-            {
-                return NotFound();
-            }
-
-            return View(examResults);
-        }
-
-        // GET: ExamResults/Create
-        public IActionResult Create()
-        {
-            ViewData["ExamsId"] = new SelectList(_context.Set<Exams>(), "Id", "Title");
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID");
-            return View();
+                .AsNoTracking()
+                .OrderByDescending(e => e.Id)
+                .ToListAsync();
+            return View(results);
         }
 
         // POST: ExamResults/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,StudentProfileId,ExamsId,Score,Status")] ExamResults examResults)
         {
             if (ModelState.IsValid)
             {
-                _context.Add(examResults);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
-            }
-            ViewData["ExamsId"] = new SelectList(_context.Set<Exams>(), "Id", "Title", examResults.ExamsId);
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID", examResults.StudentProfileId);
-            return View(examResults);
-        }
+                // RULE 1: Fetch the Exam to check against MaxScore (if Exams model has a MaxScore property)
+                var exam = await _context.Set<Exams>().AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.Id == examResults.ExamsId);
 
-        // GET: ExamResults/Edit/5
-        public async Task<IActionResult> Edit(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
+                // Note: If your Exams model has a MaxScore, enforce it here:
+                // if (exam != null && examResults.Score > exam.MaxScore) { ... }
+
+                // RULE 2: Prevent duplicate results for the same exam
+                bool alreadyExists = await _context.ExamResults.AnyAsync(er =>
+                    er.StudentProfileId == examResults.StudentProfileId &&
+                    er.ExamsId == examResults.ExamsId);
+
+                if (alreadyExists)
+                {
+                    ModelState.AddModelError("", "A result for this student on this specific exam has already been recorded.");
+                }
+
+                if (ModelState.IsValid)
+                {
+                    _context.Add(examResults);
+                    await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
+                }
             }
 
-            var examResults = await _context.ExamResults.FindAsync(id);
-            if (examResults == null)
-            {
-                return NotFound();
-            }
-            ViewData["ExamsId"] = new SelectList(_context.Set<Exams>(), "Id", "Title", examResults.ExamsId);
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID", examResults.StudentProfileId);
+            PopulateDropdowns(examResults);
             return View(examResults);
         }
 
         // POST: ExamResults/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, [Bind("Id,StudentProfileId,ExamsId,Score,Status")] ExamResults examResults)
         {
-            if (id != examResults.Id)
-            {
-                return NotFound();
-            }
+            if (id != examResults.Id) return NotFound();
 
             if (ModelState.IsValid)
             {
-                try
+                // Check for duplicate conflicts (excluding current record)
+                bool duplicateConflict = await _context.ExamResults.AnyAsync(er =>
+                    er.Id != id &&
+                    er.StudentProfileId == examResults.StudentProfileId &&
+                    er.ExamsId == examResults.ExamsId);
+
+                if (duplicateConflict)
                 {
-                    _context.Update(examResults);
-                    await _context.SaveChangesAsync();
+                    ModelState.AddModelError("", "Cannot save: This student already has a result for this exam.");
                 }
-                catch (DbUpdateConcurrencyException)
+                else
                 {
-                    if (!ExamResultsExists(examResults.Id))
+                    try
                     {
-                        return NotFound();
+                        _context.Update(examResults);
+                        await _context.SaveChangesAsync();
                     }
-                    else
+                    catch (DbUpdateConcurrencyException)
                     {
-                        throw;
+                        if (!ExamResultsExists(examResults.Id)) return NotFound();
+                        else throw;
                     }
+                    return RedirectToAction(nameof(Index));
                 }
-                return RedirectToAction(nameof(Index));
             }
-            ViewData["ExamsId"] = new SelectList(_context.Set<Exams>(), "Id", "Title", examResults.ExamsId);
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID", examResults.StudentProfileId);
+            PopulateDropdowns(examResults);
             return View(examResults);
         }
 
-        // GET: ExamResults/Delete/5
-        public async Task<IActionResult> Delete(int? id)
+        private void PopulateDropdowns(ExamResults result = null)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var examResults = await _context.ExamResults
-                .Include(e => e.Exams)
-                .Include(e => e.StudentProfile)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (examResults == null)
-            {
-                return NotFound();
-            }
-
-            return View(examResults);
-        }
-
-        // POST: ExamResults/Delete/5
-        [HttpPost, ActionName("Delete")]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> DeleteConfirmed(int id)
-        {
-            var examResults = await _context.ExamResults.FindAsync(id);
-            if (examResults != null)
-            {
-                _context.ExamResults.Remove(examResults);
-            }
-
-            await _context.SaveChangesAsync();
-            return RedirectToAction(nameof(Index));
+            ViewData["ExamsId"] = new SelectList(_context.Set<Exams>(), "Id", "Title", result?.ExamsId);
+            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "Name", result?.StudentProfileId);
         }
 
         private bool ExamResultsExists(int id)

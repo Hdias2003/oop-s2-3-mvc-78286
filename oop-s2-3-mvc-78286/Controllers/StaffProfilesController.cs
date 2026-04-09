@@ -7,9 +7,11 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using College.Domain.Models;
 using oop_s2_3_mvc_78286.Data;
+using Microsoft.AspNetCore.Authorization;
 
 namespace oop_s2_3_mvc_78286.Controllers
 {
+    [Authorize(Roles = "Administrator")] // Only Admins should manage staff profiles
     public class StaffProfilesController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -22,26 +24,28 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: StaffProfiles
         public async Task<IActionResult> Index()
         {
-            var applicationDbContext = _context.StaffProfiles.Include(s => s.Role).Include(s => s.User);
-            return View(await applicationDbContext.ToListAsync());
+            // Efficiency: Include related entities and use AsNoTracking
+            var staff = await _context.StaffProfiles
+                .Include(s => s.Role)
+                .Include(s => s.User)
+                .AsNoTracking()
+                .ToListAsync();
+            return View(staff);
         }
 
         // GET: StaffProfiles/Details/5
         public async Task<IActionResult> Details(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
             var staffProfile = await _context.StaffProfiles
                 .Include(s => s.Role)
                 .Include(s => s.User)
+                .Include(s => s.Modules) // Include Many-to-Many modules taught
+                .AsNoTracking()
                 .FirstOrDefaultAsync(m => m.Id == id);
-            if (staffProfile == null)
-            {
-                return NotFound();
-            }
+
+            if (staffProfile == null) return NotFound();
 
             return View(staffProfile);
         }
@@ -49,101 +53,32 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: StaffProfiles/Create
         public IActionResult Create()
         {
-            ViewData["RoleName"] = new SelectList(_context.Roles, "Id", "Id");
-            ViewData["IdentityUserID"] = new SelectList(_context.Users, "Id", "Id");
+            PopulateDropdowns();
             return View();
         }
 
-        // POST: StaffProfiles/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,RoleName,IdentityUserID,Name")] StaffProfile staffProfile)
         {
             if (ModelState.IsValid)
             {
-                _context.Add(staffProfile);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
-            }
-            ViewData["RoleName"] = new SelectList(_context.Roles, "Id", "Id", staffProfile.RoleName);
-            ViewData["IdentityUserID"] = new SelectList(_context.Users, "Id", "Id", staffProfile.IdentityUserID);
-            return View(staffProfile);
-        }
+                // RULE: 1-to-1 Relationship Check
+                // Prevent creating a second profile for the same Identity User
+                bool userHasProfile = await _context.StaffProfiles.AnyAsync(s => s.IdentityUserID == staffProfile.IdentityUserID);
 
-        // GET: StaffProfiles/Edit/5
-        public async Task<IActionResult> Edit(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var staffProfile = await _context.StaffProfiles.FindAsync(id);
-            if (staffProfile == null)
-            {
-                return NotFound();
-            }
-            ViewData["RoleName"] = new SelectList(_context.Roles, "Id", "Id", staffProfile.RoleName);
-            ViewData["IdentityUserID"] = new SelectList(_context.Users, "Id", "Id", staffProfile.IdentityUserID);
-            return View(staffProfile);
-        }
-
-        // POST: StaffProfiles/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, [Bind("Id,RoleName,IdentityUserID,Name")] StaffProfile staffProfile)
-        {
-            if (id != staffProfile.Id)
-            {
-                return NotFound();
-            }
-
-            if (ModelState.IsValid)
-            {
-                try
+                if (userHasProfile)
                 {
-                    _context.Update(staffProfile);
+                    ModelState.AddModelError("IdentityUserID", "This login user is already linked to a staff profile.");
+                }
+                else
+                {
+                    _context.Add(staffProfile);
                     await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
                 }
-                catch (DbUpdateConcurrencyException)
-                {
-                    if (!StaffProfileExists(staffProfile.Id))
-                    {
-                        return NotFound();
-                    }
-                    else
-                    {
-                        throw;
-                    }
-                }
-                return RedirectToAction(nameof(Index));
             }
-            ViewData["RoleName"] = new SelectList(_context.Roles, "Id", "Id", staffProfile.RoleName);
-            ViewData["IdentityUserID"] = new SelectList(_context.Users, "Id", "Id", staffProfile.IdentityUserID);
-            return View(staffProfile);
-        }
-
-        // GET: StaffProfiles/Delete/5
-        public async Task<IActionResult> Delete(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var staffProfile = await _context.StaffProfiles
-                .Include(s => s.Role)
-                .Include(s => s.User)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (staffProfile == null)
-            {
-                return NotFound();
-            }
-
+            PopulateDropdowns(staffProfile);
             return View(staffProfile);
         }
 
@@ -152,14 +87,32 @@ namespace oop_s2_3_mvc_78286.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            var staffProfile = await _context.StaffProfiles.FindAsync(id);
+            // RULE: Integrity Check
+            // Check if this staff member is currently assigned to any modules
+            var staffProfile = await _context.StaffProfiles
+                .Include(s => s.Modules)
+                .FirstOrDefaultAsync(s => s.Id == id);
+
             if (staffProfile != null)
             {
+                if (staffProfile.Modules.Any())
+                {
+                    return BadRequest("Cannot delete staff profile. They are currently assigned to teach one or more modules.");
+                }
+
                 _context.StaffProfiles.Remove(staffProfile);
+                await _context.SaveChangesAsync();
             }
 
-            await _context.SaveChangesAsync();
             return RedirectToAction(nameof(Index));
+        }
+
+        // Helper to improve readability and fix dropdown labels
+        private void PopulateDropdowns(StaffProfile staff = null)
+        {
+            // Show Role Name and User Email/Username instead of IDs
+            ViewData["RoleName"] = new SelectList(_context.Roles, "Id", "Name", staff?.RoleName);
+            ViewData["IdentityUserID"] = new SelectList(_context.Users, "Id", "Email", staff?.IdentityUserID);
         }
 
         private bool StaffProfileExists(int id)

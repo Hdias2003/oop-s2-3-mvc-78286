@@ -22,25 +22,26 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Exams
         public async Task<IActionResult> Index()
         {
-            var applicationDbContext = _context.Exams.Include(e => e.Module);
-            return View(await applicationDbContext.ToListAsync());
+            // Efficiency: AsNoTracking for read-only index and order by date
+            var exams = await _context.Exams
+                .Include(e => e.Module)
+                .AsNoTracking()
+                .OrderBy(e => e.ExamDate)
+                .ToListAsync();
+            return View(exams);
         }
 
         // GET: Exams/Details/5
         public async Task<IActionResult> Details(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
             var exams = await _context.Exams
                 .Include(e => e.Module)
+                .AsNoTracking()
                 .FirstOrDefaultAsync(m => m.Id == id);
-            if (exams == null)
-            {
-                return NotFound();
-            }
+
+            if (exams == null) return NotFound();
 
             return View(exams);
         }
@@ -49,21 +50,34 @@ namespace oop_s2_3_mvc_78286.Controllers
         public IActionResult Create()
         {
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title");
-            return View();
+            return View(new Exams { ExamDate = DateTime.Now.AddDays(7) }); // Default to a week from now
         }
 
         // POST: Exams/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,ModuleId,Title,ExamDate,MaxScore,ResultsReleased")] Exams exams)
         {
             if (ModelState.IsValid)
             {
-                _context.Add(exams);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
+                // RULE 1: MaxScore Validation
+                if (exams.MaxScore <= 0)
+                {
+                    ModelState.AddModelError("MaxScore", "Max Score must be a positive number.");
+                }
+
+                // RULE 2: Logic - Exam date shouldn't be too far in the past
+                if (exams.ExamDate < DateTime.Now.AddDays(-1))
+                {
+                    ModelState.AddModelError("ExamDate", "Exam date cannot be in the past.");
+                }
+
+                if (ModelState.IsValid)
+                {
+                    _context.Add(exams);
+                    await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
+                }
             }
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title", exams.ModuleId);
             return View(exams);
@@ -72,72 +86,46 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Exams/Edit/5
         public async Task<IActionResult> Edit(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
             var exams = await _context.Exams.FindAsync(id);
-            if (exams == null)
-            {
-                return NotFound();
-            }
+            if (exams == null) return NotFound();
+
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title", exams.ModuleId);
             return View(exams);
         }
 
         // POST: Exams/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, [Bind("Id,ModuleId,Title,ExamDate,MaxScore,ResultsReleased")] Exams exams)
         {
-            if (id != exams.Id)
-            {
-                return NotFound();
-            }
+            if (id != exams.Id) return NotFound();
 
             if (ModelState.IsValid)
             {
-                try
+                // Re-validate MaxScore
+                if (exams.MaxScore <= 0)
                 {
-                    _context.Update(exams);
-                    await _context.SaveChangesAsync();
+                    ModelState.AddModelError("MaxScore", "Max Score must be a positive number.");
                 }
-                catch (DbUpdateConcurrencyException)
+
+                if (ModelState.IsValid)
                 {
-                    if (!ExamsExists(exams.Id))
+                    try
                     {
-                        return NotFound();
+                        _context.Update(exams);
+                        await _context.SaveChangesAsync();
                     }
-                    else
+                    catch (DbUpdateConcurrencyException)
                     {
-                        throw;
+                        if (!ExamsExists(exams.Id)) return NotFound();
+                        else throw;
                     }
+                    return RedirectToAction(nameof(Index));
                 }
-                return RedirectToAction(nameof(Index));
             }
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title", exams.ModuleId);
-            return View(exams);
-        }
-
-        // GET: Exams/Delete/5
-        public async Task<IActionResult> Delete(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var exams = await _context.Exams
-                .Include(e => e.Module)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (exams == null)
-            {
-                return NotFound();
-            }
-
             return View(exams);
         }
 
@@ -146,13 +134,22 @@ namespace oop_s2_3_mvc_78286.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
+            // RULE: Referential Integrity - Check for existing results
+            bool hasResults = await _context.ExamResults.AnyAsync(er => er.ExamsId == id);
+
+            if (hasResults)
+            {
+                // Prevent deletion to protect academic records
+                return BadRequest("Cannot delete exam because student results are already recorded.");
+            }
+
             var exams = await _context.Exams.FindAsync(id);
             if (exams != null)
             {
                 _context.Exams.Remove(exams);
+                await _context.SaveChangesAsync();
             }
 
-            await _context.SaveChangesAsync();
             return RedirectToAction(nameof(Index));
         }
 

@@ -22,27 +22,12 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Assignments
         public async Task<IActionResult> Index()
         {
-            var applicationDbContext = _context.Assignments.Include(a => a.Module);
-            return View(await applicationDbContext.ToListAsync());
-        }
-
-        // GET: Assignments/Details/5
-        public async Task<IActionResult> Details(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var assignment = await _context.Assignments
+            // Efficiency Suggestion: Using AsNoTracking() for read-only lists
+            var assignments = await _context.Assignments
                 .Include(a => a.Module)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (assignment == null)
-            {
-                return NotFound();
-            }
-
-            return View(assignment);
+                .AsNoTracking()
+                .ToListAsync();
+            return View(assignments);
         }
 
         // GET: Assignments/Create
@@ -52,18 +37,30 @@ namespace oop_s2_3_mvc_78286.Controllers
             return View();
         }
 
-        // POST: Assignments/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,ModuleId,Title,MaxScore,StartDate,DueDate,Visibility")] Assignment assignment)
         {
             if (ModelState.IsValid)
             {
-                _context.Add(assignment);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
+                // RULE 1: Chronological Date Validation
+                if (assignment.DueDate <= assignment.StartDate)
+                {
+                    ModelState.AddModelError("DueDate", "The Due Date must be after the Start Date.");
+                }
+
+                // RULE 2: Minimum MaxScore
+                if (assignment.MaxScore <= 0)
+                {
+                    ModelState.AddModelError("MaxScore", "Max Score must be a positive value.");
+                }
+
+                if (ModelState.ErrorCount == 0)
+                {
+                    _context.Add(assignment);
+                    await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
+                }
             }
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title", assignment.ModuleId);
             return View(assignment);
@@ -72,72 +69,45 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Assignments/Edit/5
         public async Task<IActionResult> Edit(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
             var assignment = await _context.Assignments.FindAsync(id);
-            if (assignment == null)
-            {
-                return NotFound();
-            }
+            if (assignment == null) return NotFound();
+
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title", assignment.ModuleId);
             return View(assignment);
         }
 
-        // POST: Assignments/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, [Bind("Id,ModuleId,Title,MaxScore,StartDate,DueDate,Visibility")] Assignment assignment)
         {
-            if (id != assignment.Id)
-            {
-                return NotFound();
-            }
+            if (id != assignment.Id) return NotFound();
 
             if (ModelState.IsValid)
             {
-                try
+                // Re-apply logical checks on Edit
+                if (assignment.DueDate <= assignment.StartDate)
                 {
-                    _context.Update(assignment);
-                    await _context.SaveChangesAsync();
+                    ModelState.AddModelError("DueDate", "The Due Date must be after the Start Date.");
                 }
-                catch (DbUpdateConcurrencyException)
+
+                if (ModelState.ErrorCount == 0)
                 {
-                    if (!AssignmentExists(assignment.Id))
+                    try
                     {
-                        return NotFound();
+                        _context.Update(assignment);
+                        await _context.SaveChangesAsync();
                     }
-                    else
+                    catch (DbUpdateConcurrencyException)
                     {
-                        throw;
+                        if (!AssignmentExists(assignment.Id)) return NotFound();
+                        else throw;
                     }
+                    return RedirectToAction(nameof(Index));
                 }
-                return RedirectToAction(nameof(Index));
             }
             ViewData["ModuleId"] = new SelectList(_context.Modules, "Id", "Title", assignment.ModuleId);
-            return View(assignment);
-        }
-
-        // GET: Assignments/Delete/5
-        public async Task<IActionResult> Delete(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var assignment = await _context.Assignments
-                .Include(a => a.Module)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (assignment == null)
-            {
-                return NotFound();
-            }
-
             return View(assignment);
         }
 
@@ -146,13 +116,22 @@ namespace oop_s2_3_mvc_78286.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
+            // RULE: Prevent deletion if results are already recorded
+            bool hasResults = await _context.AssignmentResults.AnyAsync(ar => ar.AssignmentId == id);
+
+            if (hasResults)
+            {
+                // In a real app, you'd pass this error to the Delete View via TempData
+                return BadRequest("Cannot delete assignment because student results are already recorded.");
+            }
+
             var assignment = await _context.Assignments.FindAsync(id);
             if (assignment != null)
             {
                 _context.Assignments.Remove(assignment);
+                await _context.SaveChangesAsync();
             }
 
-            await _context.SaveChangesAsync();
             return RedirectToAction(nameof(Index));
         }
 

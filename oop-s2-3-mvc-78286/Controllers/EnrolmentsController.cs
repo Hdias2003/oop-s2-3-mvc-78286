@@ -22,144 +22,96 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Enrolments
         public async Task<IActionResult> Index()
         {
-            var applicationDbContext = _context.Enrolments.Include(e => e.Course).Include(e => e.StudentProfile);
-            return View(await applicationDbContext.ToListAsync());
-        }
-
-        // GET: Enrolments/Details/5
-        public async Task<IActionResult> Details(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
+            // Efficiency: Using AsNoTracking and eager loading for performance
             var enrolments = await _context.Enrolments
                 .Include(e => e.Course)
                 .Include(e => e.StudentProfile)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (enrolments == null)
-            {
-                return NotFound();
-            }
-
+                .AsNoTracking()
+                .ToListAsync();
             return View(enrolments);
         }
 
-        // GET: Enrolments/Create
-        public IActionResult Create()
-        {
-            ViewData["CourseId"] = new SelectList(_context.Courses, "Id", "Name");
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID");
-            return View();
-        }
-
         // POST: Enrolments/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,StudentProfileId,CourseId,StartDate,EndDate,Status")] Enrolments enrolments)
         {
             if (ModelState.IsValid)
             {
-                _context.Add(enrolments);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
-            }
-            ViewData["CourseId"] = new SelectList(_context.Courses, "Id", "Name", enrolments.CourseId);
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID", enrolments.StudentProfileId);
-            return View(enrolments);
-        }
+                // RULE 1: Fetch course to validate dates
+                var course = await _context.Courses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == enrolments.CourseId);
 
-        // GET: Enrolments/Edit/5
-        public async Task<IActionResult> Edit(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
+                if (course != null)
+                {
+                    if (enrolments.StartDate < course.StartDate || enrolments.EndDate > course.EndDate)
+                    {
+                        ModelState.AddModelError("StartDate", $"Enrolment dates must fall within the Course dates: {course.StartDate.ToShortDateString()} - {course.EndDate.ToShortDateString()}");
+                    }
+                }
+
+                // RULE 2: Prevent duplicate active enrolments for the same student/course
+                bool isAlreadyEnrolled = await _context.Enrolments.AnyAsync(e =>
+                    e.StudentProfileId == enrolments.StudentProfileId &&
+                    e.CourseId == enrolments.CourseId &&
+                    e.Status == "Active");
+
+                if (isAlreadyEnrolled)
+                {
+                    ModelState.AddModelError("", "This student is already actively enrolled in this course.");
+                }
+
+                if (ModelState.IsValid)
+                {
+                    _context.Add(enrolments);
+                    await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
+                }
             }
 
-            var enrolments = await _context.Enrolments.FindAsync(id);
-            if (enrolments == null)
-            {
-                return NotFound();
-            }
-            ViewData["CourseId"] = new SelectList(_context.Courses, "Id", "Name", enrolments.CourseId);
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID", enrolments.StudentProfileId);
+            PopulateDropdowns(enrolments);
             return View(enrolments);
         }
 
         // POST: Enrolments/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, [Bind("Id,StudentProfileId,CourseId,StartDate,EndDate,Status")] Enrolments enrolments)
         {
-            if (id != enrolments.Id)
-            {
-                return NotFound();
-            }
+            if (id != enrolments.Id) return NotFound();
 
             if (ModelState.IsValid)
             {
-                try
+                // Re-validate dates on Edit
+                var course = await _context.Courses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == enrolments.CourseId);
+                if (course != null && (enrolments.StartDate < course.StartDate || enrolments.EndDate > course.EndDate))
                 {
-                    _context.Update(enrolments);
-                    await _context.SaveChangesAsync();
+                    ModelState.AddModelError("StartDate", "Dates must remain within the course duration.");
                 }
-                catch (DbUpdateConcurrencyException)
+
+                if (ModelState.IsValid)
                 {
-                    if (!EnrolmentsExists(enrolments.Id))
+                    try
                     {
-                        return NotFound();
+                        _context.Update(enrolments);
+                        await _context.SaveChangesAsync();
                     }
-                    else
+                    catch (DbUpdateConcurrencyException)
                     {
-                        throw;
+                        if (!EnrolmentsExists(enrolments.Id)) return NotFound();
+                        else throw;
                     }
+                    return RedirectToAction(nameof(Index));
                 }
-                return RedirectToAction(nameof(Index));
             }
-            ViewData["CourseId"] = new SelectList(_context.Courses, "Id", "Name", enrolments.CourseId);
-            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "IdentityUserID", enrolments.StudentProfileId);
+            PopulateDropdowns(enrolments);
             return View(enrolments);
         }
 
-        // GET: Enrolments/Delete/5
-        public async Task<IActionResult> Delete(int? id)
+        // Helper to keep dropdown logic consistent
+        private void PopulateDropdowns(Enrolments enrolment = null)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var enrolments = await _context.Enrolments
-                .Include(e => e.Course)
-                .Include(e => e.StudentProfile)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (enrolments == null)
-            {
-                return NotFound();
-            }
-
-            return View(enrolments);
-        }
-
-        // POST: Enrolments/Delete/5
-        [HttpPost, ActionName("Delete")]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> DeleteConfirmed(int id)
-        {
-            var enrolments = await _context.Enrolments.FindAsync(id);
-            if (enrolments != null)
-            {
-                _context.Enrolments.Remove(enrolments);
-            }
-
-            await _context.SaveChangesAsync();
-            return RedirectToAction(nameof(Index));
+            ViewData["CourseId"] = new SelectList(_context.Courses, "Id", "Name", enrolment?.CourseId);
+            ViewData["StudentProfileId"] = new SelectList(_context.StudentProfiles, "Id", "Name", enrolment?.StudentProfileId);
         }
 
         private bool EnrolmentsExists(int id)

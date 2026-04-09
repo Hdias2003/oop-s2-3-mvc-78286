@@ -1,8 +1,57 @@
 ﻿@{
     ViewData["Title"] = "Home Page";
+
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+<div class="text-center mb-5">
+    <h1 class="display-4">College Management System</h1>
+    <p class="lead">Select a section below to manage college data.</p>
+</div>
+
+<hr />
+
+<nav class="d-flex justify-content-center flex-wrap gap-2 mb-5">
+    <a asp-controller="Branches" asp-action="Index" class="btn btn-outline-primary">Branches</a>
+    <a asp-controller="Courses" asp-action="Index" class="btn btn-outline-primary">Courses</a>
+    <a asp-controller="Modules" asp-action="Index" class="btn btn-outline-primary">Modules</a>
+    <a asp-controller="StaffProfiles" asp-action="Index" class="btn btn-outline-primary">Staff</a>
+    <a asp-controller="StudentProfiles" asp-action="Index" class="btn btn-outline-primary">Students</a>
+    <a asp-controller="Enrolments" asp-action="Index" class="btn btn-outline-primary">Enrolments</a>
+    <a asp-controller="Attendances" asp-action="Index" class="btn btn-outline-primary">Attendance</a>
+    <a asp-controller="Exams" asp-action="Index" class="btn btn-outline-secondary">Exams</a>
+    <a asp-controller="ExamResults" asp-action="Index" class="btn btn-outline-secondary">Exam Results</a>
+    <a asp-controller="AssignmentResults" asp-action="Index" class="btn btn-outline-secondary">Assignment Results</a>
+    <a asp-controller="Roles" asp-action="Index" class="btn btn-outline-danger">Roles</a>
+</nav>
+
+<div class="container">
+    <div class="row g-4">
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">Academic Records</h5>
+                    <p class="card-text">Manage exams, assignments, and results for all students.</p>
+                    <a asp-controller="ExamResults" asp-action="Index" class="card-link text-decoration-none">View Results &rarr;</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">People & Roles</h5>
+                    <p class="card-text">Overview of registered staff, students, and system access levels.</p>
+                    <a asp-controller="StudentProfiles" asp-action="Index" class="card-link text-decoration-none">Manage Users &rarr;</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">Campus Logic</h5>
+                    <p class="card-text">Coordinate branches, courses, and session attendance.</p>
+                    <a asp-controller="Branches" asp-action="Index" class="card-link text-decoration-none">View Campus &rarr;</a>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>

@@ -3,13 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using College.Domain.Models;
 using oop_s2_3_mvc_78286.Data;
+using Microsoft.AspNetCore.Authorization;
 
 namespace oop_s2_3_mvc_78286.Controllers
 {
+    [Authorize(Roles = "Administrator")] // Restrict branch management to Admins
     public class BranchesController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -22,115 +23,52 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Branches
         public async Task<IActionResult> Index()
         {
-            return View(await _context.Branches.ToListAsync());
+            // Efficiency: AsNoTracking for read-only campus list
+            return View(await _context.Branches.AsNoTracking().ToListAsync());
         }
 
         // GET: Branches/Details/5
         public async Task<IActionResult> Details(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
+            // Logic Suggestion: Include courses so we can see what's taught at this branch
             var branch = await _context.Branches
+                .Include(b => b.Course)
+                .AsNoTracking()
                 .FirstOrDefaultAsync(m => m.Id == id);
-            if (branch == null)
-            {
-                return NotFound();
-            }
+
+            if (branch == null) return NotFound();
 
             return View(branch);
         }
 
-        // GET: Branches/Create
-        public IActionResult Create()
-        {
-            return View();
-        }
-
         // POST: Branches/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,Name,Street,City,Eircode")] Branch branch)
         {
             if (ModelState.IsValid)
             {
-                _context.Add(branch);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
-            }
-            return View(branch);
-        }
-
-        // GET: Branches/Edit/5
-        public async Task<IActionResult> Edit(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var branch = await _context.Branches.FindAsync(id);
-            if (branch == null)
-            {
-                return NotFound();
-            }
-            return View(branch);
-        }
-
-        // POST: Branches/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, [Bind("Id,Name,Street,City,Eircode")] Branch branch)
-        {
-            if (id != branch.Id)
-            {
-                return NotFound();
-            }
-
-            if (ModelState.IsValid)
-            {
-                try
+                // RULE: Simple Eircode formatting (Ensure uppercase and remove extra spaces)
+                if (!string.IsNullOrEmpty(branch.Eircode))
                 {
-                    _context.Update(branch);
+                    branch.Eircode = branch.Eircode.ToUpper().Replace(" ", "");
+
+                    // Basic length check for Irish Eircodes (7 characters)
+                    if (branch.Eircode.Length != 7)
+                    {
+                        ModelState.AddModelError("Eircode", "A valid Eircode must be exactly 7 characters.");
+                    }
+                }
+
+                if (ModelState.IsValid)
+                {
+                    _context.Add(branch);
                     await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
                 }
-                catch (DbUpdateConcurrencyException)
-                {
-                    if (!BranchExists(branch.Id))
-                    {
-                        return NotFound();
-                    }
-                    else
-                    {
-                        throw;
-                    }
-                }
-                return RedirectToAction(nameof(Index));
             }
-            return View(branch);
-        }
-
-        // GET: Branches/Delete/5
-        public async Task<IActionResult> Delete(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var branch = await _context.Branches
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (branch == null)
-            {
-                return NotFound();
-            }
-
             return View(branch);
         }
 
@@ -139,13 +77,25 @@ namespace oop_s2_3_mvc_78286.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            var branch = await _context.Branches.FindAsync(id);
-            if (branch != null)
+            // RULE: Referential Integrity - Don't delete a branch if it has courses
+            bool hasCourses = await _context.Courses.AnyAsync(c => c.BranchId == id);
+
+            if (hasCourses)
             {
-                _context.Branches.Remove(branch);
+                // In a production app, use TempData to show a Toast/Alert to the user
+                ModelState.AddModelError("", "Cannot delete branch. Move or delete existing courses first.");
+
+                var branch = await _context.Branches.FindAsync(id);
+                return View("Delete", branch);
             }
 
-            await _context.SaveChangesAsync();
+            var branchToDelete = await _context.Branches.FindAsync(id);
+            if (branchToDelete != null)
+            {
+                _context.Branches.Remove(branchToDelete);
+                await _context.SaveChangesAsync();
+            }
+
             return RedirectToAction(nameof(Index));
         }
 

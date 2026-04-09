@@ -22,122 +22,86 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Courses
         public async Task<IActionResult> Index()
         {
-            var applicationDbContext = _context.Courses.Include(c => c.Branch);
-            return View(await applicationDbContext.ToListAsync());
+            // Efficiency: Include Branch and use AsNoTracking for read-only lists
+            var courses = await _context.Courses
+                .Include(c => c.Branch)
+                .AsNoTracking()
+                .ToListAsync();
+            return View(courses);
         }
 
         // GET: Courses/Details/5
         public async Task<IActionResult> Details(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
+            // Include Modules to see the curriculum in the details view
             var course = await _context.Courses
                 .Include(c => c.Branch)
+                .Include(c => c.Modules)
+                .AsNoTracking()
                 .FirstOrDefaultAsync(m => m.Id == id);
-            if (course == null)
-            {
-                return NotFound();
-            }
+
+            if (course == null) return NotFound();
 
             return View(course);
         }
 
-        // GET: Courses/Create
-        public IActionResult Create()
-        {
-            ViewData["BranchId"] = new SelectList(_context.Branches, "Id", "City");
-            return View();
-        }
-
         // POST: Courses/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,Name,StartDate,EndDate,BranchId")] Course course)
         {
             if (ModelState.IsValid)
             {
-                _context.Add(course);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
-            }
-            ViewData["BranchId"] = new SelectList(_context.Branches, "Id", "City", course.BranchId);
-            return View(course);
-        }
+                // RULE 1: Chronological Validation
+                if (course.EndDate <= course.StartDate)
+                {
+                    ModelState.AddModelError("EndDate", "The Course End Date must be after the Start Date.");
+                }
 
-        // GET: Courses/Edit/5
-        public async Task<IActionResult> Edit(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
+                if (ModelState.ErrorCount == 0)
+                {
+                    _context.Add(course);
+                    await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
+                }
             }
-
-            var course = await _context.Courses.FindAsync(id);
-            if (course == null)
-            {
-                return NotFound();
-            }
-            ViewData["BranchId"] = new SelectList(_context.Branches, "Id", "City", course.BranchId);
+            ViewData["BranchId"] = new SelectList(_context.Branches, "Id", "Name", course.BranchId);
             return View(course);
         }
 
         // POST: Courses/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, [Bind("Id,Name,StartDate,EndDate,BranchId")] Course course)
         {
-            if (id != course.Id)
-            {
-                return NotFound();
-            }
+            if (id != course.Id) return NotFound();
 
             if (ModelState.IsValid)
             {
-                try
+                // Re-validate dates on Edit
+                if (course.EndDate <= course.StartDate)
                 {
-                    _context.Update(course);
-                    await _context.SaveChangesAsync();
+                    ModelState.AddModelError("EndDate", "The Course End Date must be after the Start Date.");
                 }
-                catch (DbUpdateConcurrencyException)
+
+                if (ModelState.ErrorCount == 0)
                 {
-                    if (!CourseExists(course.Id))
+                    try
                     {
-                        return NotFound();
+                        _context.Update(course);
+                        await _context.SaveChangesAsync();
                     }
-                    else
+                    catch (DbUpdateConcurrencyException)
                     {
-                        throw;
+                        if (!CourseExists(course.Id)) return NotFound();
+                        else throw;
                     }
+                    return RedirectToAction(nameof(Index));
                 }
-                return RedirectToAction(nameof(Index));
             }
-            ViewData["BranchId"] = new SelectList(_context.Branches, "Id", "City", course.BranchId);
-            return View(course);
-        }
-
-        // GET: Courses/Delete/5
-        public async Task<IActionResult> Delete(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var course = await _context.Courses
-                .Include(c => c.Branch)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (course == null)
-            {
-                return NotFound();
-            }
-
+            ViewData["BranchId"] = new SelectList(_context.Branches, "Id", "Name", course.BranchId);
             return View(course);
         }
 
@@ -146,13 +110,23 @@ namespace oop_s2_3_mvc_78286.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
+            // RULE: Referential Integrity - Check for Enrolments or Modules
+            bool hasEnrolments = await _context.Enrolments.AnyAsync(e => e.CourseId == id);
+            bool hasModules = await _context.Modules.AnyAsync(m => m.Courses.Any(c => c.Id == id));
+
+            if (hasEnrolments || hasModules)
+            {
+                // Prevent deletion if active links exist
+                return BadRequest("Cannot delete course. It currently has active enrolments or assigned modules.");
+            }
+
             var course = await _context.Courses.FindAsync(id);
             if (course != null)
             {
                 _context.Courses.Remove(course);
+                await _context.SaveChangesAsync();
             }
 
-            await _context.SaveChangesAsync();
             return RedirectToAction(nameof(Index));
         }
 

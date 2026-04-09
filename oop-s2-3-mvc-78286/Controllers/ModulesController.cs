@@ -22,23 +22,26 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Modules
         public async Task<IActionResult> Index()
         {
-            return View(await _context.Modules.ToListAsync());
+            // Efficiency: Include related collections to show counts in the view
+            return View(await _context.Modules
+                .Include(m => m.Courses)
+                .Include(m => m.StaffProfiles)
+                .AsNoTracking()
+                .ToListAsync());
         }
 
         // GET: Modules/Details/5
         public async Task<IActionResult> Details(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
             var @module = await _context.Modules
+                .Include(m => m.Courses)
+                .Include(m => m.StaffProfiles)
+                .AsNoTracking()
                 .FirstOrDefaultAsync(m => m.Id == id);
-            if (@module == null)
-            {
-                return NotFound();
-            }
+
+            if (@module == null) return NotFound();
 
             return View(@module);
         }
@@ -49,18 +52,23 @@ namespace oop_s2_3_mvc_78286.Controllers
             return View();
         }
 
-        // POST: Modules/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,Title")] Module @module)
         {
             if (ModelState.IsValid)
             {
-                _context.Add(@module);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
+                // Logic: Ensure module titles are unique to prevent confusion
+                if (await _context.Modules.AnyAsync(m => m.Title == @module.Title))
+                {
+                    ModelState.AddModelError("Title", "A module with this title already exists.");
+                }
+                else
+                {
+                    _context.Add(@module);
+                    await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
+                }
             }
             return View(@module);
         }
@@ -68,30 +76,19 @@ namespace oop_s2_3_mvc_78286.Controllers
         // GET: Modules/Edit/5
         public async Task<IActionResult> Edit(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
             var @module = await _context.Modules.FindAsync(id);
-            if (@module == null)
-            {
-                return NotFound();
-            }
+            if (@module == null) return NotFound();
+
             return View(@module);
         }
 
-        // POST: Modules/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, [Bind("Id,Title")] Module @module)
         {
-            if (id != @module.Id)
-            {
-                return NotFound();
-            }
+            if (id != @module.Id) return NotFound();
 
             if (ModelState.IsValid)
             {
@@ -102,35 +99,11 @@ namespace oop_s2_3_mvc_78286.Controllers
                 }
                 catch (DbUpdateConcurrencyException)
                 {
-                    if (!ModuleExists(@module.Id))
-                    {
-                        return NotFound();
-                    }
-                    else
-                    {
-                        throw;
-                    }
+                    if (!ModuleExists(@module.Id)) return NotFound();
+                    else throw;
                 }
                 return RedirectToAction(nameof(Index));
             }
-            return View(@module);
-        }
-
-        // GET: Modules/Delete/5
-        public async Task<IActionResult> Delete(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var @module = await _context.Modules
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (@module == null)
-            {
-                return NotFound();
-            }
-
             return View(@module);
         }
 
@@ -139,13 +112,22 @@ namespace oop_s2_3_mvc_78286.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
+            // RULE: Referential Integrity - Check dependencies
+            bool hasAssignments = await _context.Assignments.AnyAsync(a => a.ModuleId == id);
+            bool hasAttendance = await _context.Attendances.AnyAsync(a => a.ModuleId == id);
+
+            if (hasAssignments || hasAttendance)
+            {
+                return BadRequest("Cannot delete module. It has associated assignments or attendance records.");
+            }
+
             var @module = await _context.Modules.FindAsync(id);
             if (@module != null)
             {
                 _context.Modules.Remove(@module);
+                await _context.SaveChangesAsync();
             }
 
-            await _context.SaveChangesAsync();
             return RedirectToAction(nameof(Index));
         }
 
